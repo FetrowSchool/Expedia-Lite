@@ -1,17 +1,13 @@
 # Python
-__pycache__/
-*.py[cod]
-.venv/
-.pytest_cache/
+backend/.venv/
+backend/__pycache__/
+backend/**/*.py[cod]
 
-# Node
-node_modules/
-dist/
+# Node/Vite
+frontend/node_modules/
+frontend/dist/
 
-# Environment and editor files
+# Local configuration
 .env
 .env.*
 !.env.example
-.DS_Store
-.idea/
-.vscode/

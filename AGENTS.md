@@ -1,30 +1,16 @@
-# Project Rules
+# Project rules
 
-These rules apply throughout the repository.
-
-## General
-
-- Keep backend and frontend concerns in their respective directories.
-- Make small, focused changes and avoid unrelated refactors.
-- Never commit secrets, credentials, virtual environments, dependency directories, or generated build output.
-- Update `README.md` when setup steps or project structure change.
-
-## Backend
-
-- Use Python 3.11+ and FastAPI.
-- Place application code under `backend/app/`.
-- Add type hints to new Python code.
-- Keep route handlers concise; move reusable business logic into separate modules as the application grows.
-- Add or update tests for behavioral changes.
-
-## Frontend
-
-- Use Vue 3 with the Composition API and Vite.
-- Place application code under `frontend/src/`.
-- Keep components focused and prefer explicit props and events.
-- Add or update tests for behavioral changes.
+- Keep FastAPI code and CSV handling in `backend/`; keep Vue code in `frontend/`.
+- Use Python 3.11+ with type hints and Vue 3's Composition API.
+- Preserve the Part 1 API contract: `GET /health` and `GET /api/stays?city=<city>`.
+- Treat `hotel_id` as the join key between `hotels.csv` and `trips.csv`.
+- Keep Part 1 focused on city search. Do not add booking or SQLite CRUD unless a Part 2 task requests it.
+- Do not commit `.venv`, `node_modules`, Vite build output, secrets, or local environment files.
+- Update documentation when behavior, setup, or structure changes.
+- Make focused changes and do not rewrite unrelated user work.
 
 ## Verification
 
-- Run relevant backend and frontend checks before considering a change complete.
-- Do not install or upgrade dependencies unless the task explicitly calls for it.
+- Backend: `backend/.venv/bin/python -m pytest -q backend`
+- Frontend, from `frontend/`: `./node_modules/.bin/oxlint .`, `./node_modules/.bin/eslint .`, and `npm run build`
+- For UI changes, verify a matching city and a no-results city through the running application.

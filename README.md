@@ -1,51 +1,66 @@
-# Assignment 1
+# Expedia Lite
 
-This repository is the starting point for Assignment 1: a small full-stack application with a FastAPI backend and a Vue frontend.
+Expedia Lite is a local Part 1 travel application that searches supplied hotel-stay data by destination city. It uses a Vue frontend and a Python/FastAPI backend.
+
+## Technology stack
+
+- Vue 3 and Vite for the browser interface
+- Python 3.11+ and FastAPI for the HTTP API
+- CSV files for the Part 1 hotel and trip data
 
 ## Project structure
 
 ```text
-.
-├── backend/          # FastAPI application
-├── frontend/         # Vue application (Vite)
-├── AGENTS.md         # Project rules for contributors and coding agents
-└── README.md
+backend/
+  data/hotels.csv     Hotel names, locations, and nightly rates
+  data/trips.csv      Offered trips with hotel IDs and dates
+  main.py             FastAPI routes and response models
+  travel_data.py      CSV loading, joining, filtering, and price calculation
+  test_*.py           Backend tests (including legacy calculator tests)
+frontend/
+  src/App.vue         City-search form, results table, and messages
+  src/api/travel.js   Request to the stays API
+  vite.config.js      Vite configuration and local API proxy
+docs/                 Design and verification notes
+handoffs/             Current continuation note
+prompts/              Selected prompts used during Part 1 work
 ```
 
-## Prerequisites
+`backend/calculator.py` and `backend/test_calculator.py` are legacy starter exercise files. They are not used by the Expedia Lite search flow.
 
-- Python 3.11 or newer
-- Node.js 20 or newer
-- npm 10 or newer
+## Setup
 
-## Backend setup
+Create the backend environment and install its declared packages:
 
-From the repository root:
-
-```bash
+```sh
 cd backend
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-uvicorn app.main:app --reload
+python3 -m venv .venv
+./.venv/bin/pip install -r requirements.txt
 ```
 
-On Windows, activate the virtual environment with `.venv\Scripts\activate`.
+Install the locked frontend packages:
 
-The API will be available at `http://localhost:8000`. Its interactive documentation will be at `http://localhost:8000/docs`.
-
-## Frontend setup
-
-In a separate terminal, from the repository root:
-
-```bash
+```sh
 cd frontend
 npm install
+```
+
+## Start the application
+
+Run the backend from `backend/`:
+
+```sh
+./.venv/bin/uvicorn main:app --reload
+```
+
+Run the frontend in a second terminal from `frontend/`:
+
+```sh
 npm run dev
 ```
 
-The frontend development server will print its local URL, typically `http://localhost:5173`.
+Open `http://127.0.0.1:5173`. FastAPI runs at `http://127.0.0.1:8000`.
 
-## Current status
+## Part 1 city search
 
-Only the initial project structure is included. Dependencies have not been installed.
+The user enters a city and submits the Vue form. The frontend requests `GET /api/stays?city=<city>` through Vite's local proxy. FastAPI compares the city without regard to capitalization or outer whitespace, joins trip rows to hotel rows by `hotel_id`, calculates the number of nights and total stay price, and returns matching stays as JSON. Vue displays those stays in a labeled table or shows a no-results message when the returned list is empty.
