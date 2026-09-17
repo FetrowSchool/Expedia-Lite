@@ -1,7 +1,14 @@
 <script setup>
-import { ref } from 'vue'
+import { onMounted, ref } from 'vue'
 
-import { searchStays } from './api/travel'
+import {
+  cancelBooking,
+  createBooking,
+  deleteBooking,
+  getBookings,
+  getUsers,
+  searchStays,
+} from './api/travel'
 
 const city = ref('')
 const searchedCity = ref('')
@@ -9,6 +16,29 @@ const stays = ref([])
 const error = ref('')
 const isSearching = ref(false)
 const hasSearched = ref(false)
+const users = ref([])
+const selectedStay = ref(null)
+const selectedUserId = ref('')
+const bookingMessage = ref('')
+const bookingError = ref('')
+const isBooking = ref(false)
+const bookings = ref([])
+const historyError = ref('')
+const isLoadingHistory = ref(true)
+const cancellingBookingId = ref('')
+const deletingBookingId = ref('')
+const historyMessage = ref('')
+
+onMounted(async () => {
+  try {
+    users.value = await getUsers()
+    selectedUserId.value = users.value[0]?.user_id || ''
+  } catch (requestError) {
+    bookingError.value = requestError.message
+  }
+
+  await loadBookingHistory()
+})
 
 function formatCurrency(value) {
   return new Intl.NumberFormat('en-US', {
@@ -23,6 +53,9 @@ async function submitSearch() {
   error.value = ''
   stays.value = []
   hasSearched.value = false
+  selectedStay.value = null
+  bookingMessage.value = ''
+  bookingError.value = ''
 
   if (!query) {
     error.value = 'Enter a city to search for hotel stays.'
@@ -40,6 +73,84 @@ async function submitSearch() {
     error.value = requestError.message
   } finally {
     isSearching.value = false
+  }
+}
+
+function selectStay(stay) {
+  selectedStay.value = stay
+  bookingMessage.value = ''
+  bookingError.value = ''
+}
+
+async function loadBookingHistory() {
+  historyError.value = ''
+  isLoadingHistory.value = true
+
+  try {
+    bookings.value = await getBookings()
+  } catch (requestError) {
+    historyError.value = requestError.message
+  } finally {
+    isLoadingHistory.value = false
+  }
+}
+
+async function submitCancellation(booking) {
+  historyMessage.value = ''
+  historyError.value = ''
+  cancellingBookingId.value = booking.booking_id
+
+  try {
+    await cancelBooking(booking.booking_id)
+    historyMessage.value = `Booking ${booking.booking_id} was cancelled.`
+    await loadBookingHistory()
+  } catch (requestError) {
+    historyError.value = requestError.message
+  } finally {
+    cancellingBookingId.value = ''
+  }
+}
+
+async function submitDeletion(booking) {
+  const shouldDelete = window.confirm(
+    `Delete booking ${booking.booking_id}? This cannot be undone.`,
+  )
+  if (!shouldDelete) return
+
+  historyMessage.value = ''
+  historyError.value = ''
+  deletingBookingId.value = booking.booking_id
+
+  try {
+    await deleteBooking(booking.booking_id)
+    historyMessage.value = `Booking ${booking.booking_id} was deleted.`
+    await loadBookingHistory()
+  } catch (requestError) {
+    historyError.value = requestError.message
+  } finally {
+    deletingBookingId.value = ''
+  }
+}
+
+async function submitBooking() {
+  bookingMessage.value = ''
+  bookingError.value = ''
+
+  if (!selectedStay.value || !selectedUserId.value) {
+    bookingError.value = 'Select a stay and traveler before booking.'
+    return
+  }
+
+  isBooking.value = true
+
+  try {
+    const booking = await createBooking(selectedUserId.value, selectedStay.value.trip_id)
+    bookingMessage.value = `Booking ${booking.booking_id} confirmed for ${selectedStay.value.hotel_name}.`
+    await loadBookingHistory()
+  } catch (requestError) {
+    bookingError.value = requestError.message
+  } finally {
+    isBooking.value = false
   }
 }
 </script>
@@ -90,6 +201,7 @@ async function submitSearch() {
                 <th scope="col">Nights</th>
                 <th scope="col">Nightly rate</th>
                 <th scope="col">Stay price</th>
+                <th scope="col">Action</th>
               </tr>
             </thead>
             <tbody>
@@ -101,10 +213,119 @@ async function submitSearch() {
                 <td>{{ stay.nights }}</td>
                 <td>{{ formatCurrency(stay.nightly_rate_usd) }}</td>
                 <td>{{ formatCurrency(stay.stay_price_usd) }}</td>
+                <td>
+                  <button class="select-button" type="button" @click="selectStay(stay)">
+                    {{ selectedStay?.trip_id === stay.trip_id ? 'Selected' : 'Select' }}
+                  </button>
+                </td>
               </tr>
             </tbody>
           </table>
         </div>
+      </section>
+
+      <section v-if="selectedStay" class="booking-panel" aria-labelledby="booking-title">
+        <div>
+          <p class="eyebrow">Selected stay</p>
+          <h2 id="booking-title">Book {{ selectedStay.hotel_name }}</h2>
+          <p class="booking-summary">
+            {{ selectedStay.trip_name }} · {{ selectedStay.check_in }} to
+            {{ selectedStay.check_out }} · {{ formatCurrency(selectedStay.stay_price_usd) }}
+          </p>
+        </div>
+
+        <form class="booking-form" @submit.prevent="submitBooking">
+          <label for="traveler">Traveler</label>
+          <div class="booking-controls">
+            <select id="traveler" v-model="selectedUserId" :disabled="isBooking || !users.length">
+              <option value="" disabled>Select a traveler</option>
+              <option v-for="user in users" :key="user.user_id" :value="user.user_id">
+                {{ user.display_name }} ({{ user.user_id }})
+              </option>
+            </select>
+            <button type="submit" :disabled="isBooking || !selectedUserId">
+              {{ isBooking ? 'Booking…' : 'Book stay' }}
+            </button>
+          </div>
+        </form>
+
+        <p v-if="bookingError" class="message error-message" role="alert">
+          {{ bookingError }}
+        </p>
+        <p v-if="bookingMessage" class="message success-message" role="status">
+          {{ bookingMessage }}
+        </p>
+      </section>
+
+      <section class="history" aria-labelledby="history-title">
+        <div class="results-heading">
+          <h2 id="history-title">Booking history</h2>
+          <p v-if="bookings.length">{{ bookings.length }} bookings</p>
+        </div>
+
+        <p v-if="isLoadingHistory" class="message" role="status">Loading booking history…</p>
+        <p v-else-if="historyError" class="message error-message" role="alert">
+          {{ historyError }}
+        </p>
+        <p v-else-if="bookings.length === 0" class="message">No bookings have been made yet.</p>
+
+        <div v-else class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">Booking</th>
+                <th scope="col">Traveler</th>
+                <th scope="col">Trip</th>
+                <th scope="col">Hotel</th>
+                <th scope="col">Location</th>
+                <th scope="col">Booked on</th>
+                <th scope="col">Status</th>
+                <th scope="col">Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="booking in bookings" :key="booking.booking_id">
+                <td>{{ booking.booking_id }}</td>
+                <td>{{ booking.display_name }} ({{ booking.user_id }})</td>
+                <td>{{ booking.trip_name }} ({{ booking.trip_id }})</td>
+                <td>{{ booking.hotel_name }}</td>
+                <td>{{ booking.city }}, {{ booking.state }}</td>
+                <td>{{ booking.booked_on }}</td>
+                <td>
+                  <span class="status-badge" :class="`status-${booking.status}`">
+                    {{ booking.status }}
+                  </span>
+                </td>
+                <td>
+                  <div class="booking-actions">
+                    <button
+                      v-if="booking.status !== 'cancelled'"
+                      class="cancel-button"
+                      type="button"
+                      :disabled="cancellingBookingId === booking.booking_id"
+                      @click="submitCancellation(booking)"
+                    >
+                      {{ cancellingBookingId === booking.booking_id ? 'Cancelling…' : 'Cancel' }}
+                    </button>
+                    <span v-else class="action-complete">Cancelled</span>
+                    <button
+                      class="delete-button"
+                      type="button"
+                      :disabled="deletingBookingId === booking.booking_id"
+                      @click="submitDeletion(booking)"
+                    >
+                      {{ deletingBookingId === booking.booking_id ? 'Deleting…' : 'Delete' }}
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <p v-if="historyMessage" class="message success-message" role="status">
+          {{ historyMessage }}
+        </p>
       </section>
     </section>
   </main>
@@ -184,13 +405,22 @@ h2 {
 }
 
 input,
-button {
+button,
+select {
   min-height: 3rem;
   border-radius: 0.375rem;
   font: inherit;
 }
 
 input {
+  width: 100%;
+  padding: 0.7rem 0.875rem;
+  border: 1px solid #8e9bae;
+  color: inherit;
+  background: #fff;
+}
+
+select {
   width: 100%;
   padding: 0.7rem 0.875rem;
   border: 1px solid #8e9bae;
@@ -226,7 +456,8 @@ button:hover:not(:disabled) {
 }
 
 input:focus-visible,
-button:focus-visible {
+button:focus-visible,
+select:focus-visible {
   outline: 3px solid #f2c94c;
   outline-offset: 2px;
 }
@@ -246,8 +477,20 @@ button:focus-visible {
   background: #fff4f2;
 }
 
+.success-message {
+  border-color: #9bc8aa;
+  color: #175c2f;
+  background: #f0faf3;
+}
+
 .results {
   margin-top: 2rem;
+}
+
+.history {
+  margin-top: 2.5rem;
+  padding-top: 2rem;
+  border-top: 1px solid #d7dfeb;
 }
 
 .results-heading {
@@ -281,7 +524,7 @@ button:focus-visible {
 
 table {
   width: 100%;
-  min-width: 52rem;
+  min-width: 59rem;
   border-collapse: collapse;
   font-size: 0.92rem;
 }
@@ -309,8 +552,109 @@ tbody tr:last-child td {
   border-bottom: 0;
 }
 
+.select-button {
+  min-width: 5.5rem;
+  min-height: 2.25rem;
+  padding: 0.4rem 0.75rem;
+  border-color: #8391a5;
+  color: #223550;
+  background: #fff;
+}
+
+.select-button:hover:not(:disabled) {
+  background: #edf2f8;
+}
+
+.booking-panel {
+  display: grid;
+  gap: 1rem;
+  margin-top: 2rem;
+  padding: 1.25rem;
+  border: 1px solid #b9c9df;
+  border-radius: 0.625rem;
+  background: #f8faff;
+}
+
+.booking-panel h2,
+.booking-summary {
+  margin: 0;
+}
+
+.booking-summary {
+  margin-top: 0.4rem;
+  color: #526173;
+}
+
+.booking-form {
+  display: grid;
+  gap: 0.625rem;
+}
+
+.booking-controls {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.status-badge {
+  display: inline-block;
+  padding: 0.25rem 0.5rem;
+  border-radius: 999px;
+  color: #173f2a;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: capitalize;
+  background: #dff3e5;
+}
+
+.status-cancelled {
+  color: #7a3329;
+  background: #f9e3df;
+}
+
+.cancel-button {
+  min-width: 5.5rem;
+  min-height: 2.25rem;
+  padding: 0.4rem 0.75rem;
+  border-color: #b14a3c;
+  color: #8a2d21;
+  background: #fff;
+}
+
+.booking-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.cancel-button:hover:not(:disabled) {
+  color: #fff;
+  background: #9e3d31;
+}
+
+.delete-button {
+  min-width: 5.5rem;
+  min-height: 2.25rem;
+  padding: 0.4rem 0.75rem;
+  border-color: #802c24;
+  color: #fff;
+  background: #802c24;
+}
+
+.delete-button:hover:not(:disabled) {
+  background: #641f1a;
+}
+
+.action-complete {
+  color: #6b7584;
+  font-size: 0.82rem;
+}
+
 @media (max-width: 34rem) {
   .search-controls {
+    flex-direction: column;
+  }
+
+  .booking-controls {
     flex-direction: column;
   }
 
