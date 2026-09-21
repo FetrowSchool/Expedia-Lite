@@ -11,3 +11,7 @@ This folder records the important prompts available in this task history. It doe
 7. [`007-part2-cancellation.md`](007-part2-cancellation.md) — status-based booking cancellation
 8. [`008-part2-deletion.md`](008-part2-deletion.md) — deletion of test bookings
 9. [`009-part2-review.md`](009-part2-review.md) — complete Part 2 verification
+10. [`010-part2-mvc.md`](010-part2-mvc.md) — MVC separation review and refactor
+11. [`011-part2-seeding-and-ids.md`](011-part2-seeding-and-ids.md) — durable seeding and unique booking IDs
+12. [`012-part2-persistence.md`](012-part2-persistence.md) — browser and service-restart persistence checks
+13. [`013-part2-final-review.md`](013-part2-final-review.md) — final technical requirement review

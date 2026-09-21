@@ -2,39 +2,30 @@
 
 ## What works
 
-- The Vue page accepts a destination city and submits it with the Search button.
-- FastAPI searches the SQLite data without regard to city capitalization or outer whitespace.
-- Matching trips are joined to hotels by `hotel_id`; nights and stay prices are calculated by the backend.
-- The frontend displays matching stays in a labeled table and displays a clear message for no matches.
-- SQLite is seeded from the supplied hotel, trip, user, and booking CSVs without duplicating starter rows on restart.
-- A user can select a search result and traveler, then create a confirmed simulated booking through FastAPI.
-- Booking history loads from SQLite and shows joined traveler, trip, hotel, location, date, and status details.
-- Confirmed bookings can be cancelled through FastAPI; cancellation retains the row and updates its SQLite status.
-- Test bookings can be deleted through FastAPI and disappear from history without deleting related records.
+- Vue provides branded top navigation for Search stays and Bookings. It searches hotel stays by city through FastAPI and displays results or a clear no-results message.
+- FastAPI reads runtime data from SQLite and joins trips to hotels by `hotel_id`.
+- Signed-in city searches are automatically recorded in shared search history and priced by same-user/query/day frequency. Search 1 uses base price; search 2 and later use a single 20% increase. The frontend uses the returned price without a separate pricing search UI.
+- An empty database is seeded once from the supplied hotel, trip, user, and booking CSV files while preserving their IDs.
+- Users can create simulated bookings, read booking history, cancel bookings without deleting them, and delete test bookings.
+- Users can create local demo accounts, receive unique user IDs, log in with made-up credentials, see the signed-in username, and log out. Duplicate usernames are rejected.
+- New bookings receive durable unique `B###` IDs. Refreshing or restarting the services does not restore deleted bookings, overwrite saved changes, or duplicate starter rows.
+- The structure follows MVC: Pydantic models describe data, Vue is the View, the database controller owns SQLite CRUD, and FastAPI is the API layer.
 
-## What was checked
+## Final verification
 
-- On 2026-09-09, the backend suite passed 11 tests; frontend Oxlint, ESLint, and the production build passed.
-- Embedded-browser checks found four Boston stays and the message `No hotel stays were found for Atlantis.`
-- FastAPI returned HTTP 200 for both browser searches, and the browser console showed no warnings or errors.
-- On 2026-09-14, SQLite initialization produced 8 hotels, 12 trips, 6 users, and 6 bookings on two consecutive backend starts, with no foreign-key violations.
-- The SQLite-backed browser search returned four Boston stays and the expected Atlantis no-results message.
-- On 2026-09-14, the browser search→select→book flow created `B007` for `U001` and `T001`; the row remained in SQLite after browser refresh.
-- On 2026-09-14, booking history loaded eight existing rows, then displayed newly created `B009` immediately and after a browser refresh.
-- On 2026-09-14, cancelling `B009` returned HTTP 200, retained all nine rows, and remained cancelled after browser refresh.
-- On 2026-09-14, the complete backend suite passed 26 tests; Oxlint, ESLint, the Vue production build, and `git diff --check` passed.
-- The final browser pass returned four Boston stays, showed the Atlantis no-results message, and reported no browser console warnings or errors after both servers were running.
-- The delete flow removed test booking `B010` with HTTP 204. It remained absent after browser refresh and FastAPI restart, while cancelled booking `B009` remained in history.
-- After the restart, SQLite contained 8 hotels, 12 trips, 6 users, and 9 bookings, with no foreign-key violations.
+- Backend: 31 tests passed.
+- Frontend: Oxlint, ESLint, and the Vite production build passed.
+- Browser: Boston returned four stays; Atlantis displayed the no-results message.
+- Persistence: `B013` remained cancelled after browser refresh and frontend/backend restarts. Test booking `B014` remained deleted after refresh and both service restarts.
+- Final SQLite counts were 8 unique hotels, 12 unique trips, 6 unique users, and 13 unique bookings. The seed marker remained set and the next booking number was 15.
 
-## Remaining limitations
+## Limitations
 
-- Bookings are simulated; there is no authentication or payment processing.
-- Travelers are selected from seeded starter users rather than signed-in accounts.
-- The SQLite database is local, and the project has no production deployment configuration.
-- Cancellation is the only supported status update.
-- The calculator module and its tests are legacy starter artifacts, not part of the travel-search flow.
+- Bookings are simulated; there is no authentication, payment processing, surge pricing, or production deployment.
+- Travelers are selected from starter users, and cancellation is the only status update.
+- SQLite is local to one application instance.
+- Legacy calculator files are not part of Expedia Lite.
 
-## Next task
+## Next step
 
-Part 2 implementation and integrated verification are complete. The next step is to review the assignment submission materials, then commit and push when requested.
+Part 2 implementation and verification are complete. Review the submission files, then commit and push only when requested.

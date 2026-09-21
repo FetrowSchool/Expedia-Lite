@@ -9,6 +9,58 @@ export async function searchStays(city) {
   return payload
 }
 
+export async function createAccount(username, password, email) {
+  const response = await fetch('/api/accounts', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ username, password, email: email || null }),
+  })
+  const payload = await response.json().catch(() => ({}))
+
+  if (!response.ok) {
+    throw new Error(payload.detail || 'Unable to create the account.')
+  }
+
+  return payload
+}
+
+export async function loginAccount(username, password) {
+  const response = await fetch('/api/session/login', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ username, password }),
+  })
+  const payload = await response.json().catch(() => ({}))
+
+  if (!response.ok) {
+    throw new Error(payload.detail || 'Unable to log in.')
+  }
+
+  return payload
+}
+
+export async function getCurrentAccount() {
+  const response = await fetch('/api/session')
+  const payload = await response.json().catch(() => null)
+
+  if (!response.ok) {
+    throw new Error('Unable to check the current account.')
+  }
+
+  return payload
+}
+
+export async function logoutAccount() {
+  const response = await fetch('/api/session/logout', { method: 'POST' })
+  if (!response.ok) {
+    throw new Error('Unable to log out.')
+  }
+}
+
 export async function getUsers() {
   const response = await fetch('/api/users')
   const payload = await response.json().catch(() => ([]))

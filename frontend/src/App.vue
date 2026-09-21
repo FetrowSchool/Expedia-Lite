@@ -3,10 +3,14 @@ import { onMounted, ref } from 'vue'
 
 import {
   cancelBooking,
+  createAccount,
   createBooking,
   deleteBooking,
   getBookings,
+  getCurrentAccount,
   getUsers,
+  loginAccount,
+  logoutAccount,
   searchStays,
 } from './api/travel'
 
@@ -28,8 +32,25 @@ const isLoadingHistory = ref(true)
 const cancellingBookingId = ref('')
 const deletingBookingId = ref('')
 const historyMessage = ref('')
+const activeView = ref('search')
+const isMenuOpen = ref(false)
+const currentAccount = ref(null)
+const accountUsername = ref('')
+const accountPassword = ref('')
+const accountEmail = ref('')
+const loginUsername = ref('')
+const loginPassword = ref('')
+const accountMessage = ref('')
+const accountError = ref('')
+const isSubmittingAccount = ref(false)
 
 onMounted(async () => {
+  try {
+    currentAccount.value = await getCurrentAccount()
+  } catch (requestError) {
+    accountError.value = requestError.message
+  }
+
   try {
     users.value = await getUsers()
     selectedUserId.value = users.value[0]?.user_id || ''
@@ -46,6 +67,72 @@ function formatCurrency(value) {
     currency: 'USD',
     maximumFractionDigits: 0,
   }).format(value)
+}
+
+function showView(view) {
+  activeView.value = view
+  isMenuOpen.value = false
+}
+
+async function submitAccountCreation() {
+  accountMessage.value = ''
+  accountError.value = ''
+  const username = accountUsername.value.trim()
+  const password = accountPassword.value.trim()
+
+  if (!username || !password) {
+    accountError.value = 'Enter a username and password.'
+    return
+  }
+
+  isSubmittingAccount.value = true
+  try {
+    const account = await createAccount(username, password, accountEmail.value.trim())
+    accountMessage.value = `Account ${account.username} was created. You can now log in.`
+    loginUsername.value = account.username
+    accountUsername.value = ''
+    accountPassword.value = ''
+    accountEmail.value = ''
+  } catch (requestError) {
+    accountError.value = requestError.message
+  } finally {
+    isSubmittingAccount.value = false
+  }
+}
+
+async function submitLogin() {
+  accountMessage.value = ''
+  accountError.value = ''
+  const username = loginUsername.value.trim()
+  const password = loginPassword.value
+
+  if (!username || !password.trim()) {
+    accountError.value = 'Enter your username and password.'
+    return
+  }
+
+  isSubmittingAccount.value = true
+  try {
+    currentAccount.value = await loginAccount(username, password)
+    accountMessage.value = `Signed in as ${currentAccount.value.username}.`
+    loginPassword.value = ''
+  } catch (requestError) {
+    accountError.value = requestError.message
+  } finally {
+    isSubmittingAccount.value = false
+  }
+}
+
+async function submitLogout() {
+  accountMessage.value = ''
+  accountError.value = ''
+  try {
+    await logoutAccount()
+    currentAccount.value = null
+    accountMessage.value = 'You are now logged out.'
+  } catch (requestError) {
+    accountError.value = requestError.message
+  }
 }
 
 async function submitSearch() {
@@ -157,14 +244,72 @@ async function submitBooking() {
 
 <template>
   <main class="page-shell">
+    <nav class="top-nav" aria-label="Primary navigation">
+      <button class="brand" type="button" @click="showView('search')">
+        <span class="brand-mark" aria-hidden="true">E</span>
+        <span>Expedia Lite</span>
+      </button>
+
+      <div class="nav-tabs" aria-label="Application pages">
+        <button
+          class="nav-tab"
+          :class="{ active: activeView === 'search' }"
+          type="button"
+          @click="showView('search')"
+        >
+          Search stays
+        </button>
+        <button
+          class="nav-tab"
+          :class="{ active: activeView === 'bookings' }"
+          type="button"
+          @click="showView('bookings')"
+        >
+          Bookings
+        </button>
+        <button
+          class="nav-tab"
+          :class="{ active: activeView === 'account' }"
+          type="button"
+          @click="showView('account')"
+        >
+          Account
+        </button>
+      </div>
+
+      <div class="menu-wrap">
+        <span v-if="currentAccount" class="signed-in-label">
+          {{ currentAccount.username }}
+        </span>
+        <button
+          class="menu-button"
+          type="button"
+          aria-label="Menu"
+          :aria-expanded="isMenuOpen"
+          aria-controls="app-menu"
+          @click="isMenuOpen = !isMenuOpen"
+        >
+          <span aria-hidden="true"></span>
+          <span aria-hidden="true"></span>
+          <span aria-hidden="true"></span>
+        </button>
+        <div v-if="isMenuOpen" id="app-menu" class="menu-panel">
+          <p>Menu</p>
+          <button type="button" @click="showView('search')">Search stays</button>
+          <button type="button" @click="showView('bookings')">Bookings</button>
+          <button type="button" @click="showView('account')">Account</button>
+        </div>
+      </div>
+    </nav>
+
     <section class="app-card" aria-labelledby="app-title">
-      <header class="app-header">
+      <header v-if="activeView === 'search'" class="app-header">
         <p class="eyebrow">Travel stay search</p>
         <h1 id="app-title">Expedia Lite</h1>
         <p class="intro">Search available hotel stays by city and compare trip dates and prices.</p>
       </header>
 
-      <form class="search-form" @submit.prevent="submitSearch">
+      <form v-if="activeView === 'search'" class="search-form" @submit.prevent="submitSearch">
         <label for="city">City</label>
         <div class="search-controls">
           <input
@@ -180,12 +325,22 @@ async function submitBooking() {
         </div>
       </form>
 
-      <p v-if="error" class="message error-message" role="alert">{{ error }}</p>
-      <p v-else-if="hasSearched && stays.length === 0" class="message" aria-live="polite">
+      <p v-if="activeView === 'search' && error" class="message error-message" role="alert">
+        {{ error }}
+      </p>
+      <p
+        v-else-if="activeView === 'search' && hasSearched && stays.length === 0"
+        class="message"
+        aria-live="polite"
+      >
         No hotel stays were found for {{ searchedCity }}.
       </p>
 
-      <section v-else-if="stays.length" class="results" aria-labelledby="results-title">
+      <section
+        v-else-if="activeView === 'search' && stays.length"
+        class="results"
+        aria-labelledby="results-title"
+      >
         <div class="results-heading">
           <h2 id="results-title">Available stays in {{ searchedCity }}</h2>
           <p>{{ stays.length }} {{ stays.length === 1 ? 'stay' : 'stays' }} found</p>
@@ -224,7 +379,11 @@ async function submitBooking() {
         </div>
       </section>
 
-      <section v-if="selectedStay" class="booking-panel" aria-labelledby="booking-title">
+      <section
+        v-if="activeView === 'search' && selectedStay"
+        class="booking-panel"
+        aria-labelledby="booking-title"
+      >
         <div>
           <p class="eyebrow">Selected stay</p>
           <h2 id="booking-title">Book {{ selectedStay.hotel_name }}</h2>
@@ -257,9 +416,73 @@ async function submitBooking() {
         </p>
       </section>
 
-      <section class="history" aria-labelledby="history-title">
+      <section v-if="activeView === 'account'" class="account-view" aria-labelledby="app-title">
+        <div class="account-heading">
+          <p class="eyebrow">Demo account</p>
+          <h1 id="app-title">Account</h1>
+          <p class="intro">Use made-up classroom credentials only.</p>
+        </div>
+
+        <div v-if="currentAccount" class="signed-in-panel">
+          <p class="eyebrow">Signed in</p>
+          <h2>{{ currentAccount.username }}</h2>
+          <p>User ID: {{ currentAccount.user_id }}</p>
+          <button type="button" @click="submitLogout">Log out</button>
+        </div>
+
+        <div v-else class="account-grid">
+          <form class="account-form" @submit.prevent="submitLogin">
+            <div>
+              <p class="eyebrow">Existing account</p>
+              <h2>Log in</h2>
+            </div>
+            <label for="login-username">Username</label>
+            <input id="login-username" v-model="loginUsername" autocomplete="username" />
+            <label for="login-password">Password</label>
+            <input
+              id="login-password"
+              v-model="loginPassword"
+              type="password"
+              autocomplete="current-password"
+            />
+            <button type="submit" :disabled="isSubmittingAccount">Log in</button>
+          </form>
+
+          <form class="account-form" @submit.prevent="submitAccountCreation">
+            <div>
+              <p class="eyebrow">New demo account</p>
+              <h2>Create account</h2>
+            </div>
+            <label for="account-username">Username</label>
+            <input id="account-username" v-model="accountUsername" autocomplete="username" />
+            <label for="account-password">Password</label>
+            <input
+              id="account-password"
+              v-model="accountPassword"
+              type="password"
+              autocomplete="new-password"
+            />
+            <label for="account-email">Email <span>(optional)</span></label>
+            <input id="account-email" v-model="accountEmail" type="email" autocomplete="email" />
+            <button type="submit" :disabled="isSubmittingAccount">Create account</button>
+          </form>
+        </div>
+
+        <p v-if="accountError" class="message error-message" role="alert">
+          {{ accountError }}
+        </p>
+        <p v-if="accountMessage" class="message success-message" role="status">
+          {{ accountMessage }}
+        </p>
+      </section>
+
+      <section v-if="activeView === 'bookings'" class="history" aria-labelledby="history-title">
         <div class="results-heading">
-          <h2 id="history-title">Booking history</h2>
+          <div>
+            <p class="eyebrow">Your trips</p>
+            <h1 id="app-title">Bookings</h1>
+            <h2 id="history-title" class="visually-hidden">Booking history</h2>
+          </div>
           <p v-if="bookings.length">{{ bookings.length }} bookings</p>
         </div>
 
@@ -345,7 +568,147 @@ async function submitBooking() {
 
 .page-shell {
   min-height: 100vh;
-  padding: clamp(2rem, 6vw, 4rem) 1rem;
+  padding: 0 1rem clamp(2rem, 6vw, 4rem);
+}
+
+.top-nav {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  width: min(100%, 72rem);
+  min-height: 5rem;
+  margin: 0 auto 1.5rem;
+  border-bottom: 1px solid #d7dfeb;
+}
+
+.brand,
+.nav-tab,
+.menu-button,
+.menu-panel button {
+  min-width: 0;
+  border: 0;
+  color: #152c5b;
+  background: transparent;
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  justify-self: start;
+  gap: 0.65rem;
+  padding: 0;
+  font-size: 1.25rem;
+  letter-spacing: -0.02em;
+}
+
+.brand:hover:not(:disabled),
+.nav-tab:hover:not(:disabled),
+.menu-button:hover:not(:disabled),
+.menu-panel button:hover:not(:disabled) {
+  color: #173f85;
+  background: #edf3fc;
+}
+
+.brand-mark {
+  display: grid;
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 0.55rem 0.55rem 0.2rem 0.55rem;
+  color: #fff;
+  font-size: 1.4rem;
+  font-weight: 800;
+  place-items: center;
+  background: #2455a6;
+}
+
+.nav-tabs {
+  display: flex;
+  align-self: stretch;
+  gap: 0.25rem;
+}
+
+.nav-tab {
+  position: relative;
+  min-height: auto;
+  padding: 0.5rem 1rem;
+  border-radius: 0;
+}
+
+.nav-tab.active::after {
+  position: absolute;
+  right: 1rem;
+  bottom: -1px;
+  left: 1rem;
+  height: 3px;
+  border-radius: 3px 3px 0 0;
+  background: #2455a6;
+  content: '';
+}
+
+.menu-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-self: end;
+  gap: 0.5rem;
+}
+
+.signed-in-label {
+  max-width: 10rem;
+  overflow: hidden;
+  color: #526173;
+  font-size: 0.88rem;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.menu-button {
+  display: grid;
+  width: 3rem;
+  height: 3rem;
+  padding: 0.75rem;
+  place-content: center;
+  gap: 0.25rem;
+}
+
+.menu-button span {
+  display: block;
+  width: 1.4rem;
+  height: 2px;
+  border-radius: 2px;
+  background: currentColor;
+}
+
+.menu-panel {
+  position: absolute;
+  z-index: 10;
+  top: calc(100% + 0.5rem);
+  right: 0;
+  width: 13rem;
+  padding: 0.5rem;
+  border: 1px solid #d7dfeb;
+  border-radius: 0.625rem;
+  background: #fff;
+  box-shadow: 0 0.75rem 2rem rgb(31 55 90 / 16%);
+}
+
+.menu-panel p {
+  margin: 0;
+  padding: 0.65rem 0.75rem 0.4rem;
+  color: #526173;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.menu-panel button {
+  width: 100%;
+  min-height: 2.75rem;
+  padding: 0.6rem 0.75rem;
+  text-align: left;
 }
 
 .app-card {
@@ -488,9 +851,18 @@ select:focus-visible {
 }
 
 .history {
-  margin-top: 2.5rem;
-  padding-top: 2rem;
-  border-top: 1px solid #d7dfeb;
+  margin-top: 0;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .results-heading {
@@ -580,6 +952,43 @@ tbody tr:last-child td {
   margin: 0;
 }
 
+.account-view {
+  display: grid;
+  gap: 1.5rem;
+}
+
+.account-heading {
+  max-width: 42rem;
+}
+
+.account-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.account-form,
+.signed-in-panel {
+  display: grid;
+  align-content: start;
+  gap: 0.625rem;
+  padding: 1.25rem;
+  border: 1px solid #dbe3ef;
+  border-radius: 0.625rem;
+  background: #f8faff;
+}
+
+.account-form h2,
+.signed-in-panel h2,
+.signed-in-panel p {
+  margin: 0;
+}
+
+.account-form label span {
+  color: #66758a;
+  font-weight: 400;
+}
+
 .booking-summary {
   margin-top: 0.4rem;
   color: #526173;
@@ -650,12 +1059,37 @@ tbody tr:last-child td {
 }
 
 @media (max-width: 34rem) {
+  .top-nav {
+    grid-template-columns: 1fr auto;
+  }
+
+  .nav-tabs {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    justify-content: stretch;
+    width: 100%;
+    border-top: 1px solid #e5eaf1;
+  }
+
+  .nav-tab {
+    flex: 1;
+    width: auto;
+  }
+
+  .signed-in-label {
+    display: none;
+  }
+
   .search-controls {
     flex-direction: column;
   }
 
   .booking-controls {
     flex-direction: column;
+  }
+
+  .account-grid {
+    grid-template-columns: 1fr;
   }
 
   .results-heading {
@@ -666,6 +1100,11 @@ tbody tr:last-child td {
 
   button {
     width: 100%;
+  }
+
+  .brand,
+  .menu-button {
+    width: auto;
   }
 }
 </style>

@@ -1,39 +1,47 @@
-# Expedia Lite — Parts 1 and 2
+# Expedia Lite — Part 2 Report
 
-## Repository
+## Repository and commit
 
-https://github.com/FetrowSchool/Expedia-Lite
+- GitHub repository URL: `<ADD_FINAL_GITHUB_REPOSITORY_URL>`
+- Final Part 2 commit hash: `<ADD_FINAL_PART_2_COMMIT_HASH>`
 
 ## Implementation
 
-Expedia Lite is a local travel application with a Vue 3 frontend, a Python/FastAPI backend, and a SQLite database. Users can search available hotel stays by city, select a stay and seeded traveler, create a simulated booking, view booking history, cancel a booking without deleting it, and delete a test booking.
+Expedia Lite uses a Vue 3 frontend, FastAPI backend, and local SQLite database. The supplied hotel, trip, user, and booking CSV records are imported when an empty database is initialized. Their IDs are preserved, and a one-time metadata marker prevents later starts from duplicating or restoring starter records.
 
-FastAPI initializes SQLite from the supplied hotel, trip, user, and booking CSV files. Normal application reads and writes use SQLite. Trips reference hotels through `hotel_id`; bookings reference users and trips through `user_id` and `trip_id`. Vue performs every database operation through FastAPI and never accesses SQLite directly.
+Pydantic models describe hotels, trips, users, bookings, city-search results, and booking history. Trips reference hotels through `hotel_id`; bookings reference users and trips through `user_id` and `trip_id`. Vue is the View, `backend/database_controller.py` performs SQLite reads and CRUD operations, and FastAPI connects the frontend to that controller.
+
+The user searches by **city**. Vue sends `GET /api/stays?city=<city>`, and the backend joins SQLite hotel and trip records through `hotel_id`. Matching stays appear in the results table.
+
+For simulated booking, the user selects a stay and starter traveler. Vue sends `user_id` and `trip_id` to FastAPI, which stores a confirmed booking in SQLite. A durable counter generates unique `B###` IDs beyond the seeded examples and does not reuse deleted IDs.
+
+Booking history is read from SQLite and joins each booking to its traveler, trip, and hotel. The implemented CRUD flow is:
+
+- Create: add a confirmed booking.
+- Read: display SQLite booking history.
+- Update: change a booking to `cancelled` while retaining it.
+- Delete: remove a selected test booking without deleting its related user, trip, or hotel.
+
+All operations follow Vue → FastAPI → database controller → SQLite. Saved changes persist across browser refreshes and service restarts.
 
 ## Verification
 
-- Searching for Boston returned four matching stays in a table with clear labels.
-- Searching for Atlantis displayed `No hotel stays were found for Atlantis.`
-- The search, booking, history, cancellation, and deletion requests went through FastAPI.
-- A created booking remained available after browser refresh and backend restart.
-- Cancelled booking `B009` remained in history with status `cancelled`.
-- Deleted test booking `B010` remained absent after browser refresh and backend restart.
-- Restarting the backend did not duplicate starter records.
-- SQLite foreign-key verification reported no violations.
-- The backend suite passed 26 tests. Oxlint, ESLint, and the Vue production build passed.
-- The final browser check reported no console warnings or errors after both development servers were running.
+- Successful city search: Boston returned four matching stays with labeled result columns.
+- No-results search: Atlantis displayed `No hotel stays were found for Atlantis.`
+- Create/read: booking `B013` was created through the frontend and appeared in booking history.
+- Update: `B013` was cancelled through the frontend and remained visible with `cancelled` status.
+- Refresh persistence: `B013` remained cancelled after browser refresh.
+- Restart persistence: `B013` remained cancelled after frontend and backend restarts.
+- Delete: test booking `B014` was created and deleted through the frontend. It remained absent after refresh and frontend/backend restarts.
+- Duplicate prevention: after restarts, SQLite contained 8 unique hotels, 12 unique trips, 6 unique users, and 13 unique bookings. The seed marker was still set.
+- Automated checks: all 31 backend tests passed; Oxlint, ESLint, and the Vue production build passed.
 
-## Limitations
+## Project context and next steps
 
-Bookings are simulated. Travelers come from starter data, and the application does not include authentication, payments, or production deployment. SQLite is local to one application instance, and cancellation is the only supported booking-status update.
-
-## Project documentation
+Part 2 is implemented and verified. Bookings remain simulated, travelers come from starter data, and SQLite is local to one application instance. Authentication, payments, surge pricing, and production deployment are outside the implemented scope. The next step is to add the final repository URL and Part 2 commit hash, review the submission, then commit and push when requested.
 
 - [README](README.md)
 - [Project rules](AGENTS.md)
 - [Design notes](docs/design.md)
-- [Verification instructions](docs/verification.md)
 - [Selected prompts](prompts/README.md)
 - [Current handoff](handoffs/current.md)
-
-Parts 1 and 2 are implemented and verified. The remaining step is assignment submission.

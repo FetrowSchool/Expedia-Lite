@@ -1,10 +1,19 @@
-from fastapi import FastAPI, HTTPException, Response
-from pydantic import BaseModel, field_validator
+from fastapi import Cookie, FastAPI, HTTPException, Response
 
-from booking_data import (
+from account_controller import (
+    SESSION_COOKIE_NAME,
+    InvalidCredentialsError,
+    current_account,
+    login,
+    logout,
+    register_account,
+)
+
+from database_controller import (
     UnknownTripError,
     UnknownUserError,
     UnknownBookingError,
+    DuplicateUsernameError,
     cancel_booking,
     create_booking,
     delete_booking,
@@ -12,64 +21,21 @@ from booking_data import (
     list_users,
 )
 from database import initialize_database
-from travel_data import search_stays_by_city
+from models import (
+    Booking,
+    BookingCreate,
+    BookingHistoryItem,
+    AccountCreate,
+    CitySearchResponse,
+    LoginRequest,
+    User,
+    UserAccount,
+)
+from search_controller import search_city
 
 initialize_database()
 
 app = FastAPI(title="Expedia Lite API")
-
-
-class Stay(BaseModel):
-    trip_id: str
-    trip_name: str
-    hotel_name: str
-    city: str
-    state: str
-    check_in: str
-    check_out: str
-    nights: int
-    nightly_rate_usd: float
-    stay_price_usd: float
-
-
-class CitySearchResponse(BaseModel):
-    city: str
-    stays: list[Stay]
-
-
-class User(BaseModel):
-    user_id: str
-    display_name: str
-
-
-class BookingCreate(BaseModel):
-    user_id: str
-    trip_id: str
-
-    @field_validator("user_id", "trip_id")
-    @classmethod
-    def reject_blank_ids(cls, value: str) -> str:
-        """Trim IDs and reject empty values."""
-        normalized_value = value.strip()
-        if not normalized_value:
-            raise ValueError("ID must not be blank.")
-        return normalized_value
-
-
-class Booking(BaseModel):
-    booking_id: str
-    user_id: str
-    trip_id: str
-    booked_on: str
-    status: str
-
-
-class BookingHistoryItem(Booking):
-    display_name: str
-    trip_name: str
-    hotel_name: str
-    city: str
-    state: str
 
 
 @app.get("/health")
@@ -78,10 +44,62 @@ def health_check() -> dict[str, str]:
     return {"status": "ok"}
 
 
-@app.get("/api/stays", response_model=CitySearchResponse)
-def search_stays(city: str) -> CitySearchResponse:
-    """Find offered hotel stays by city, ignoring capitalization and outer whitespace."""
-    return CitySearchResponse(city=city.strip(), stays=search_stays_by_city(city))
+@app.post("/api/accounts", response_model=UserAccount, status_code=201)
+def post_account(account: AccountCreate) -> UserAccount:
+    """Create a local classroom-demo account."""
+    try:
+        return UserAccount(
+            **register_account(account.username, account.password, account.email)
+        )
+    except DuplicateUsernameError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+
+
+@app.post("/api/session/login", response_model=UserAccount)
+def post_login(credentials: LoginRequest, response: Response) -> UserAccount:
+    """Authenticate demo credentials and begin a local browser session."""
+    try:
+        session_id, account = login(credentials.username, credentials.password)
+    except InvalidCredentialsError as error:
+        raise HTTPException(status_code=401, detail=str(error)) from error
+
+    response.set_cookie(
+        SESSION_COOKIE_NAME,
+        session_id,
+        httponly=True,
+        samesite="lax",
+    )
+    return UserAccount(**account)
+
+
+@app.get("/api/session", response_model=UserAccount | None)
+def get_session(
+    session_id: str | None = Cookie(default=None, alias=SESSION_COOKIE_NAME),
+) -> UserAccount | None:
+    """Return the account currently signed in for this browser session."""
+    account = current_account(session_id)
+    return UserAccount(**account) if account is not None else None
+
+
+@app.post("/api/session/logout", status_code=204)
+def post_logout(
+    response: Response,
+    session_id: str | None = Cookie(default=None, alias=SESSION_COOKIE_NAME),
+) -> Response:
+    """End the current local browser session."""
+    logout(session_id)
+    response.delete_cookie(SESSION_COOKIE_NAME)
+    response.status_code = 204
+    return response
+
+
+@app.get("/api/stays", response_model=CitySearchResponse, response_model_exclude_none=True)
+def search_stays(
+    city: str,
+    session_id: str | None = Cookie(default=None, alias=SESSION_COOKIE_NAME),
+) -> CitySearchResponse:
+    """Run the existing city search with automatic signed-in pricing."""
+    return CitySearchResponse(**search_city(session_id, city))
 
 
 @app.get("/api/users", response_model=list[User])
