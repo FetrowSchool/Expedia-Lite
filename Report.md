@@ -100,6 +100,10 @@ Hotel Selection: ![Hotel select](Screenshots/Hotel-select.png)
 Invalid zip code: ![invalid zipcode](Screenshots/invalid-zip.png)
 
 
+## Screen-Recorded Demo
+
+[Watch the Part 1 demo](https://drive.google.com/file/d/1xfwOgG1H7Eqfs_mFcJy8e4RLM8KaZzZ3/view?usp=sharing)
+
 ## Project context and next steps
 
 Part 1 implemented live hotel searching using Geoapify, FastAPI, Vue, and Leaflet. ZIP codes are resolved through the backend and hotels within 5 km of the returned location are displayed as a map and a list.
