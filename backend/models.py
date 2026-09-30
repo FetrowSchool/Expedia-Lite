@@ -13,6 +13,40 @@ class Hotel(BaseModel):
     nightly_rate_usd: float
 
 
+class ZipLocation(BaseModel):
+    """A resolved U.S. postcode location, independent of hotel pricing."""
+
+    postcode: str
+    country_code: str
+    latitude: float
+    longitude: float
+    locality: str | None = None
+    state: str | None = None
+
+
+class LiveHotel(BaseModel):
+    """Provider-backed hotel fields; booking data is intentionally absent."""
+
+    place_id: str
+    name: str | None = None
+    address: str | None = None
+    latitude: float
+    longitude: float
+
+
+class LiveHotelSearchResponse(BaseModel):
+    """Resolved ZIP search center and nearby Geoapify hotel results."""
+
+    resolved_zip: str
+    resolved_city: str | None = None
+    resolved_state: str | None = None
+    country_code: str
+    search_center_latitude: float
+    search_center_longitude: float
+    radius_meters: int
+    hotels: list[LiveHotel]
+
+
 class Trip(BaseModel):
     """An offered stay related to a hotel by hotel_id."""
 

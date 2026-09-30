@@ -1,10 +1,262 @@
 from fastapi.testclient import TestClient
 
 import database_controller
+import main
 from database import DATA_DIRECTORY, initialize_database
 from main import app
+from models import LiveHotel, LiveHotelSearchResponse, ZipLocation
+from zip_controller import (
+    GeoapifyConfigurationError,
+    GeoapifyProviderError,
+    ZipLookupNotFoundError,
+)
 
 client = TestClient(app)
+
+
+def test_api_health_reports_unconfigured_key_without_exposing_it(monkeypatch) -> None:
+    monkeypatch.setenv("GEOAPIFY_API_KEY", "   ")
+
+    response = client.get("/api/health")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "ok",
+        "geoapify_api_key": "key is not configured",
+    }
+
+
+def test_api_health_reports_configured_key_without_exposing_it(monkeypatch) -> None:
+    monkeypatch.setenv("GEOAPIFY_API_KEY", "demo-secret-value")
+
+    response = client.get("/api/health")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "ok",
+        "geoapify_api_key": "key is configured",
+    }
+    assert "demo-secret-value" not in response.text
+
+
+def test_demo_zip_location_returns_mocked_location(monkeypatch) -> None:
+    monkeypatch.setattr(
+        main,
+        "lookup_us_postcode",
+        lambda postcode: ZipLocation(
+            postcode=postcode,
+            country_code="US",
+            latitude=40.7982,
+            longitude=-77.8599,
+            locality="University Park",
+        ),
+    )
+
+    response = client.get("/api/demo/zip-location", params={"postcode": "16802"})
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "postcode": "16802",
+        "country_code": "US",
+        "latitude": 40.7982,
+        "longitude": -77.8599,
+        "locality": "University Park",
+    }
+
+
+def test_demo_zip_location_accepts_leading_zero(monkeypatch) -> None:
+    monkeypatch.setattr(
+        main,
+        "lookup_us_postcode",
+        lambda postcode: ZipLocation(
+            postcode=postcode,
+            country_code="US",
+            latitude=42.357,
+            longitude=-71.0637,
+            locality="Boston",
+        ),
+    )
+
+    response = client.get("/api/demo/zip-location", params={"postcode": "02108"})
+
+    assert response.status_code == 200
+    assert response.json()["postcode"] == "02108"
+
+
+def test_demo_zip_location_rejects_invalid_input_before_controller(monkeypatch) -> None:
+    def unexpected_lookup(_postcode: str) -> ZipLocation:
+        raise AssertionError("Invalid input reached the ZIP controller.")
+
+    monkeypatch.setattr(main, "lookup_us_postcode", unexpected_lookup)
+
+    for invalid_postcode in ("", "1680", "168020", "16A02", "16-02"):
+        response = client.get(
+            "/api/demo/zip-location",
+            params={"postcode": invalid_postcode},
+        )
+
+        assert response.status_code == 400
+        assert response.json() == {
+            "detail": "Enter a ZIP code using exactly 5 numeric digits."
+        }
+
+
+def test_demo_zip_location_rejects_missing_input(monkeypatch) -> None:
+    def unexpected_lookup(_postcode: str) -> ZipLocation:
+        raise AssertionError("Missing input reached the ZIP controller.")
+
+    monkeypatch.setattr(main, "lookup_us_postcode", unexpected_lookup)
+
+    response = client.get("/api/demo/zip-location")
+
+    assert response.status_code == 400
+    assert response.json() == {
+        "detail": "Enter a ZIP code using exactly 5 numeric digits."
+    }
+
+
+def test_demo_zip_location_maps_missing_configuration(monkeypatch) -> None:
+    def missing_configuration(_postcode: str) -> ZipLocation:
+        raise GeoapifyConfigurationError("secret details")
+
+    monkeypatch.setattr(main, "lookup_us_postcode", missing_configuration)
+
+    response = client.get("/api/demo/zip-location", params={"postcode": "16802"})
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "detail": "The ZIP location provider is not configured."
+    }
+    assert "secret details" not in response.text
+
+
+def test_demo_zip_location_maps_unresolved_zip(monkeypatch) -> None:
+    def unresolved(_postcode: str) -> ZipLocation:
+        raise ZipLookupNotFoundError("raw provider details")
+
+    monkeypatch.setattr(main, "lookup_us_postcode", unresolved)
+
+    response = client.get("/api/demo/zip-location", params={"postcode": "99999"})
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "ZIP code 99999 could not be resolved."}
+    assert "raw provider details" not in response.text
+
+
+def test_demo_zip_location_maps_provider_failure(monkeypatch) -> None:
+    def provider_failure(_postcode: str) -> ZipLocation:
+        raise GeoapifyProviderError("credential-bearing request")
+
+    monkeypatch.setattr(main, "lookup_us_postcode", provider_failure)
+
+    response = client.get("/api/demo/zip-location", params={"postcode": "16802"})
+
+    assert response.status_code == 502
+    assert response.json() == {
+        "detail": "The ZIP location provider request failed."
+    }
+    assert "credential-bearing request" not in response.text
+
+
+def test_live_hotels_route_returns_clean_results(monkeypatch) -> None:
+    monkeypatch.setattr(
+        main,
+        "search_live_hotels",
+        lambda postcode: LiveHotelSearchResponse(
+            resolved_zip=postcode,
+            resolved_city="State College",
+            resolved_state="PA",
+            country_code="US",
+            search_center_latitude=40.8032,
+            search_center_longitude=-77.8614,
+            radius_meters=5000,
+            hotels=[
+                LiveHotel(
+                    place_id="hotel-1",
+                    name="Example Hotel",
+                    address="100 College Ave, State College, PA",
+                    latitude=40.802,
+                    longitude=-77.86,
+                )
+            ],
+        ),
+    )
+
+    response = client.get("/api/live-hotels", params={"postcode": "16802"})
+
+    assert response.status_code == 200
+    assert response.json()["resolved_zip"] == "16802"
+    assert response.json()["hotels"][0] == {
+        "place_id": "hotel-1",
+        "name": "Example Hotel",
+        "address": "100 College Ave, State College, PA",
+        "latitude": 40.802,
+        "longitude": -77.86,
+    }
+
+
+def test_live_hotels_route_distinguishes_zero_results(monkeypatch) -> None:
+    monkeypatch.setattr(
+        main,
+        "search_live_hotels",
+        lambda postcode: LiveHotelSearchResponse(
+            resolved_zip=postcode,
+            resolved_city="State College",
+            resolved_state="PA",
+            country_code="US",
+            search_center_latitude=40.8032,
+            search_center_longitude=-77.8614,
+            radius_meters=5000,
+            hotels=[],
+        ),
+    )
+
+    response = client.get("/api/live-hotels", params={"postcode": "16802"})
+
+    assert response.status_code == 200
+    assert response.json()["hotels"] == []
+
+
+def test_live_hotels_route_rejects_invalid_zip_before_controller(monkeypatch) -> None:
+    def unexpected_search(_postcode: str) -> LiveHotelSearchResponse:
+        raise AssertionError("Invalid ZIP reached the live hotel controller.")
+
+    monkeypatch.setattr(main, "search_live_hotels", unexpected_search)
+
+    response = client.get("/api/live-hotels", params={"postcode": "02A08"})
+
+    assert response.status_code == 400
+    assert response.json() == {
+        "detail": "Enter a ZIP code using exactly 5 numeric digits."
+    }
+
+
+def test_live_hotels_route_maps_unresolved_and_provider_failures(monkeypatch) -> None:
+    def unresolved(_postcode: str) -> LiveHotelSearchResponse:
+        raise ZipLookupNotFoundError("provider details")
+
+    monkeypatch.setattr(main, "search_live_hotels", unresolved)
+    unresolved_response = client.get(
+        "/api/live-hotels", params={"postcode": "99999"}
+    )
+
+    def failed(_postcode: str) -> LiveHotelSearchResponse:
+        raise GeoapifyProviderError("credential-bearing details")
+
+    monkeypatch.setattr(main, "search_live_hotels", failed)
+    failure_response = client.get(
+        "/api/live-hotels", params={"postcode": "16802"}
+    )
+
+    assert unresolved_response.status_code == 404
+    assert unresolved_response.json() == {
+        "detail": "ZIP code 99999 could not be resolved."
+    }
+    assert failure_response.status_code == 502
+    assert failure_response.json() == {
+        "detail": "The live hotel provider request failed."
+    }
+    assert "credential-bearing details" not in failure_response.text
 
 
 def test_search_stays_returns_joined_boston_results() -> None:

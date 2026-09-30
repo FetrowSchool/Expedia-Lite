@@ -1,5 +1,7 @@
 <script setup>
-import { onMounted, ref } from 'vue'
+import { nextTick, onMounted, ref } from 'vue'
+
+import LiveHotelMap from './components/LiveHotelMap.vue'
 
 import {
   cancelBooking,
@@ -11,6 +13,7 @@ import {
   getUsers,
   loginAccount,
   logoutAccount,
+  searchLiveHotels,
   searchStays,
 } from './api/travel'
 
@@ -43,6 +46,14 @@ const loginPassword = ref('')
 const accountMessage = ref('')
 const accountError = ref('')
 const isSubmittingAccount = ref(false)
+const zipCode = ref('')
+const liveHotelSearch = ref(null)
+const liveHotelError = ref('')
+const liveHotelErrorKind = ref('')
+const isSearchingLiveHotels = ref(false)
+const hasSearchedLiveHotels = ref(false)
+const selectedHotelId = ref('')
+const hotelCardElements = new Map()
 
 onMounted(async () => {
   try {
@@ -161,6 +172,53 @@ async function submitSearch() {
   } finally {
     isSearching.value = false
   }
+}
+
+async function submitLiveHotelSearch() {
+  const postcode = zipCode.value.trim()
+  liveHotelSearch.value = null
+  liveHotelError.value = ''
+  liveHotelErrorKind.value = ''
+  hasSearchedLiveHotels.value = false
+  selectedHotelId.value = ''
+
+  if (!postcode) {
+    liveHotelErrorKind.value = 'invalid'
+    liveHotelError.value = 'Enter a five-digit U.S. ZIP code.'
+    return
+  }
+
+  if (!/^\d{5}$/.test(postcode)) {
+    liveHotelErrorKind.value = 'invalid'
+    liveHotelError.value = 'ZIP code must contain exactly five numeric digits.'
+    return
+  }
+
+  isSearchingLiveHotels.value = true
+
+  try {
+    liveHotelSearch.value = await searchLiveHotels(postcode)
+    hasSearchedLiveHotels.value = true
+  } catch (requestError) {
+    liveHotelErrorKind.value = requestError.status === 404 ? 'unresolved' : 'service'
+    liveHotelError.value =
+      requestError.status === 404
+        ? `ZIP code ${postcode} could not be resolved to an exact U.S. location.`
+        : requestError.message || 'The hotel search service is unavailable. Please try again.'
+  } finally {
+    isSearchingLiveHotels.value = false
+  }
+}
+
+function setHotelCardElement(hotelId, element) {
+  if (element) hotelCardElements.set(hotelId, element)
+  else hotelCardElements.delete(hotelId)
+}
+
+async function selectLiveHotel(hotelId) {
+  selectedHotelId.value = hotelId
+  await nextTick()
+  hotelCardElements.get(hotelId)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
 }
 
 function selectStay(stay) {
@@ -324,6 +382,140 @@ async function submitBooking() {
           </button>
         </div>
       </form>
+
+      <section
+        v-if="activeView === 'search'"
+        class="live-hotel-search"
+        aria-labelledby="live-hotel-title"
+      >
+        <div class="live-search-heading">
+          <div>
+            <p class="eyebrow">Live hotel search</p>
+            <h2 id="live-hotel-title">Find hotels near a ZIP code</h2>
+          </div>
+          <p>Searches a 5 km radius using the resolved ZIP location.</p>
+        </div>
+
+        <form class="live-search-form" @submit.prevent="submitLiveHotelSearch">
+          <label for="zip-code">Five-digit U.S. ZIP code</label>
+          <div class="live-search-controls">
+            <input
+              id="zip-code"
+              v-model="zipCode"
+              type="text"
+              inputmode="numeric"
+              autocomplete="postal-code"
+              placeholder="Try 16802 or 02108"
+              aria-describedby="zip-help"
+              :aria-invalid="liveHotelErrorKind === 'invalid'"
+            />
+            <button type="submit" :disabled="isSearchingLiveHotels">
+              {{ isSearchingLiveHotels ? 'Searching…' : 'Search Hotels' }}
+            </button>
+          </div>
+          <p id="zip-help" class="field-help">Leading zeros are preserved.</p>
+        </form>
+
+        <p v-if="isSearchingLiveHotels" class="live-search-status" role="status">
+          Resolving ZIP {{ zipCode.trim() }} and searching for nearby hotels…
+        </p>
+        <p
+          v-else-if="liveHotelError"
+          class="message error-message live-search-message"
+          :data-error-kind="liveHotelErrorKind"
+          role="alert"
+        >
+          {{ liveHotelError }}
+        </p>
+        <p
+          v-else-if="!hasSearchedLiveHotels"
+          class="live-search-status"
+          aria-live="polite"
+        >
+          Enter a five-digit ZIP code to see nearby hotels and their map locations.
+        </p>
+
+        <template v-else-if="liveHotelSearch">
+          <section class="resolved-location" aria-labelledby="resolved-location-title">
+            <h3 id="resolved-location-title">Resolved location</h3>
+            <dl class="location-summary">
+              <div>
+                <dt>ZIP code</dt>
+                <dd>{{ liveHotelSearch.resolved_zip }}</dd>
+              </div>
+              <div v-if="liveHotelSearch.resolved_city">
+                <dt>City</dt>
+                <dd>{{ liveHotelSearch.resolved_city }}</dd>
+              </div>
+              <div v-if="liveHotelSearch.resolved_state">
+                <dt>State</dt>
+                <dd>{{ liveHotelSearch.resolved_state }}</dd>
+              </div>
+              <div>
+                <dt>Latitude</dt>
+                <dd>{{ liveHotelSearch.search_center_latitude }}</dd>
+              </div>
+              <div>
+                <dt>Longitude</dt>
+                <dd>{{ liveHotelSearch.search_center_longitude }}</dd>
+              </div>
+            </dl>
+          </section>
+
+          <p
+            v-if="liveHotelSearch.hotels.length === 0"
+            class="message live-search-message"
+            role="status"
+          >
+            No hotels were found within 5 km of ZIP {{ liveHotelSearch.resolved_zip }}.
+          </p>
+
+          <section class="live-results" aria-labelledby="live-results-title">
+            <div class="results-heading">
+              <h3 id="live-results-title">Nearby hotels</h3>
+              <p>
+                {{ liveHotelSearch.hotels.length }}
+                {{ liveHotelSearch.hotels.length === 1 ? 'hotel' : 'hotels' }} found
+              </p>
+            </div>
+
+            <div class="live-results-layout">
+              <div
+                v-if="liveHotelSearch.hotels.length"
+                class="live-hotel-list"
+                aria-label="Nearby hotel results"
+              >
+                <button
+                  v-for="hotel in liveHotelSearch.hotels"
+                  :key="hotel.place_id"
+                  :ref="(element) => setHotelCardElement(hotel.place_id, element)"
+                  class="live-hotel-card"
+                  :class="{ selected: selectedHotelId === hotel.place_id }"
+                  type="button"
+                  :aria-pressed="selectedHotelId === hotel.place_id"
+                  @click="selectLiveHotel(hotel.place_id)"
+                >
+                  <strong>{{ hotel.name || 'Name unavailable' }}</strong>
+                  <span v-if="hotel.address">{{ hotel.address }}</span>
+                  <span class="hotel-coordinates">
+                    {{ hotel.latitude }}, {{ hotel.longitude }}
+                  </span>
+                </button>
+              </div>
+
+              <div class="live-map-panel">
+                <LiveHotelMap
+                  :latitude="liveHotelSearch.search_center_latitude"
+                  :longitude="liveHotelSearch.search_center_longitude"
+                  :hotels="liveHotelSearch.hotels"
+                  :selected-hotel-id="selectedHotelId"
+                  @select="selectLiveHotel"
+                />
+              </div>
+            </div>
+          </section>
+        </template>
+      </section>
 
       <p v-if="activeView === 'search' && error" class="message error-message" role="alert">
         {{ error }}
@@ -551,6 +743,35 @@ async function submitBooking() {
         </p>
       </section>
     </section>
+
+    <footer class="site-footer" aria-label="Expedia Lite footer">
+      <div class="footer-brand">
+        <span class="brand-mark" aria-hidden="true">E</span>
+        <div>
+          <strong>Expedia Lite</strong>
+          <p>A classroom travel application for exploring stays and nearby hotels.</p>
+        </div>
+      </div>
+
+      <div class="footer-grid">
+        <section aria-labelledby="footer-explore-title">
+          <h2 id="footer-explore-title">Explore</h2>
+          <button type="button" @click="showView('search')">Search stays</button>
+          <button type="button" @click="showView('bookings')">Booking history</button>
+          <button type="button" @click="showView('account')">Demo account</button>
+        </section>
+
+        <section aria-labelledby="footer-notice-title">
+          <h2 id="footer-notice-title">Important notice</h2>
+          <p>This is a classroom demonstration, not a commercial booking service.</p>
+          <p>Live hotel results do not promise prices, ratings, or availability.</p>
+        </section>
+      </div>
+
+      <p class="footer-legal">
+        © 2026 Expedia Lite classroom project. Created for educational use only.
+      </p>
+    </footer>
   </main>
 </template>
 
@@ -721,6 +942,90 @@ async function submitBooking() {
   box-shadow: 0 0.75rem 2rem rgb(31 55 90 / 8%);
 }
 
+.site-footer {
+  width: min(100%, 72rem);
+  margin: 2rem auto 0;
+  padding: clamp(1.5rem, 4vw, 2.5rem);
+  border-radius: 0.75rem;
+  color: #263c5a;
+  background: #eaf0f7;
+}
+
+.footer-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.875rem;
+}
+
+.footer-brand strong {
+  color: #152c5b;
+  font-size: 1.25rem;
+}
+
+.footer-brand p,
+.footer-grid p,
+.footer-legal {
+  margin: 0;
+  line-height: 1.5;
+}
+
+.footer-brand p {
+  margin-top: 0.2rem;
+  color: #526173;
+}
+
+.footer-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 2rem;
+  margin-top: 2rem;
+}
+
+.footer-grid section {
+  display: grid;
+  align-content: start;
+  gap: 0.65rem;
+}
+
+.footer-grid h2 {
+  margin: 0 0 0.25rem;
+  color: #152c5b;
+  font-size: 1rem;
+}
+
+.footer-grid p {
+  color: #526173;
+  font-size: 0.9rem;
+}
+
+.footer-grid button {
+  width: fit-content;
+  min-width: 0;
+  min-height: auto;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  color: #2455a6;
+  font-size: 0.9rem;
+  font-weight: 600;
+  text-align: left;
+  background: transparent;
+}
+
+.footer-grid button:hover:not(:disabled) {
+  color: #173f85;
+  text-decoration: underline;
+  background: transparent;
+}
+
+.footer-legal {
+  margin-top: 2rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid #cbd7e5;
+  color: #526173;
+  font-size: 0.82rem;
+}
+
 .app-header {
   max-width: 42rem;
 }
@@ -755,6 +1060,153 @@ h1 {
   border: 1px solid #dbe3ef;
   border-radius: 0.625rem;
   background: #f8faff;
+}
+
+.live-hotel-search {
+  display: grid;
+  gap: 1.25rem;
+  margin-top: 2rem;
+  padding-top: 2rem;
+  border-top: 1px solid #dbe3ef;
+}
+
+.live-search-heading {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.live-search-heading h2,
+.live-search-heading p,
+.resolved-location h3,
+.live-results h3 {
+  margin: 0;
+}
+
+.live-search-heading > p,
+.field-help,
+.live-search-status {
+  color: #526173;
+}
+
+.live-search-form {
+  display: grid;
+  gap: 0.625rem;
+  padding: 1.25rem;
+  border: 1px solid #dbe3ef;
+  border-radius: 0.625rem;
+  background: #f8faff;
+}
+
+.live-search-controls {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.field-help,
+.live-search-status,
+.live-search-message,
+.location-summary,
+.location-summary dd {
+  margin: 0;
+}
+
+.field-help {
+  font-size: 0.85rem;
+}
+
+.resolved-location {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.location-summary {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.location-summary div {
+  padding: 0.75rem;
+  border: 1px solid #dbe3ef;
+  border-radius: 0.375rem;
+  background: #f8faff;
+}
+
+.location-summary dt {
+  margin-bottom: 0.25rem;
+  color: #526173;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.location-summary dd {
+  overflow-wrap: anywhere;
+}
+
+.live-results {
+  display: grid;
+  gap: 0.875rem;
+}
+
+.live-results-layout {
+  display: grid;
+  grid-template-columns: minmax(15rem, 0.8fr) minmax(22rem, 1.4fr);
+  gap: 1rem;
+}
+
+.live-hotel-list {
+  display: grid;
+  align-content: start;
+  max-height: 30rem;
+  padding-right: 0.25rem;
+  overflow-y: auto;
+  gap: 0.625rem;
+}
+
+.live-hotel-card {
+  display: grid;
+  width: 100%;
+  min-height: auto;
+  padding: 1rem;
+  border: 1px solid #b9c9df;
+  color: #182230;
+  text-align: left;
+  background: #fff;
+  gap: 0.35rem;
+}
+
+.live-hotel-card:hover:not(:disabled) {
+  border-color: #2455a6;
+  color: #182230;
+  background: #f3f7fd;
+}
+
+.live-hotel-card.selected {
+  border-color: #2455a6;
+  color: #152c5b;
+  background: #e9f1fd;
+  box-shadow: inset 4px 0 #2455a6;
+}
+
+.live-hotel-card span {
+  color: #526173;
+  font-size: 0.9rem;
+  font-weight: 400;
+  line-height: 1.4;
+}
+
+.hotel-coordinates {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.78rem !important;
+}
+
+.live-map-panel {
+  overflow: hidden;
+  border: 1px solid #ccd6e3;
+  border-radius: 0.5rem;
 }
 
 label,
@@ -1058,6 +1510,29 @@ tbody tr:last-child td {
   font-size: 0.82rem;
 }
 
+@media (max-width: 50rem) {
+  .footer-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .live-search-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .location-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .live-results-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .live-hotel-list {
+    max-height: 22rem;
+  }
+}
+
 @media (max-width: 34rem) {
   .top-nav {
     grid-template-columns: 1fr auto;
@@ -1084,12 +1559,29 @@ tbody tr:last-child td {
     flex-direction: column;
   }
 
+  .live-search-controls {
+    flex-direction: column;
+  }
+
+  .location-summary {
+    grid-template-columns: 1fr;
+  }
+
   .booking-controls {
     flex-direction: column;
   }
 
   .account-grid {
     grid-template-columns: 1fr;
+  }
+
+  .footer-grid {
+    grid-template-columns: 1fr;
+    gap: 1.5rem;
+  }
+
+  .footer-grid button {
+    width: fit-content;
   }
 
   .results-heading {

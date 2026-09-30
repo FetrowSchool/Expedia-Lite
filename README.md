@@ -16,6 +16,7 @@ backend/
   database.py          SQLite schema, connection, and idempotent seeding
   models.py            Hotel, trip, user, booking, and API data models
   database_controller.py  SQLite queries and booking CRUD operations
+  config.py            Loads backend configuration from the root `.env`
   main.py              Thin FastAPI communication layer
   test_*.py           Backend tests (including legacy calculator tests)
 frontend/
@@ -63,6 +64,10 @@ npm run dev
 ```
 
 Open `http://127.0.0.1:5173`. FastAPI runs at `http://127.0.0.1:8000`.
+
+## Backend configuration
+
+Local backend configuration is stored in the project-root `.env` file beside `frontend/` and `backend/`. `backend/config.py` loads that file using an explicit path and reads `GEOAPIFY_API_KEY`. `GET /api/health` reports only whether the key is configured; it never returns the key itself. Restart the FastAPI backend after editing `.env` so the running process loads the updated setting.
 
 ## Data initialization
 

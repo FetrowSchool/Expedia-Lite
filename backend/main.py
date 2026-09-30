@@ -8,6 +8,7 @@ from account_controller import (
     logout,
     register_account,
 )
+from config import is_geoapify_key_configured
 
 from database_controller import (
     UnknownTripError,
@@ -21,6 +22,7 @@ from database_controller import (
     list_users,
 )
 from database import initialize_database
+from hotel_search_controller import search_live_hotels
 from models import (
     Booking,
     BookingCreate,
@@ -28,20 +30,102 @@ from models import (
     AccountCreate,
     CitySearchResponse,
     LoginRequest,
+    LiveHotelSearchResponse,
     User,
     UserAccount,
+    ZipLocation,
 )
 from search_controller import search_city
+from zip_controller import (
+    GeoapifyConfigurationError,
+    GeoapifyProviderError,
+    ZipLookupNotFoundError,
+    lookup_us_postcode,
+)
 
 initialize_database()
 
 app = FastAPI(title="Expedia Lite API")
 
 
+@app.get("/api/health")
 @app.get("/health")
 def health_check() -> dict[str, str]:
-    """Report that the API is available."""
-    return {"status": "ok"}
+    """Report API availability and safe configuration status."""
+    key_status = (
+        "key is configured"
+        if is_geoapify_key_configured()
+        else "key is not configured"
+    )
+    return {"status": "ok", "geoapify_api_key": key_status}
+
+
+def _validate_postcode(postcode: str) -> None:
+    if (
+        len(postcode) != 5
+        or not postcode.isascii()
+        or not postcode.isdigit()
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="Enter a ZIP code using exactly 5 numeric digits.",
+        )
+
+
+@app.get(
+    "/api/demo/zip-location",
+    response_model=ZipLocation,
+    response_model_exclude_none=True,
+)
+def get_demo_zip_location(postcode: str = "") -> ZipLocation:
+    """Resolve a five-digit U.S. ZIP without exposing provider credentials."""
+    _validate_postcode(postcode)
+
+    try:
+        return lookup_us_postcode(postcode)
+    except GeoapifyConfigurationError as error:
+        raise HTTPException(
+            status_code=503,
+            detail="The ZIP location provider is not configured.",
+        ) from error
+    except ZipLookupNotFoundError as error:
+        raise HTTPException(
+            status_code=404,
+            detail=f"ZIP code {postcode} could not be resolved.",
+        ) from error
+    except GeoapifyProviderError as error:
+        raise HTTPException(
+            status_code=502,
+            detail="The ZIP location provider request failed.",
+        ) from error
+
+
+@app.get(
+    "/api/live-hotels",
+    response_model=LiveHotelSearchResponse,
+    response_model_exclude_none=True,
+)
+def get_live_hotels(postcode: str = "") -> LiveHotelSearchResponse:
+    """Return Geoapify hotels within 5 km of an exact U.S. ZIP center."""
+    _validate_postcode(postcode)
+
+    try:
+        return search_live_hotels(postcode)
+    except GeoapifyConfigurationError as error:
+        raise HTTPException(
+            status_code=503,
+            detail="The live hotel provider is not configured.",
+        ) from error
+    except ZipLookupNotFoundError as error:
+        raise HTTPException(
+            status_code=404,
+            detail=f"ZIP code {postcode} could not be resolved.",
+        ) from error
+    except GeoapifyProviderError as error:
+        raise HTTPException(
+            status_code=502,
+            detail="The live hotel provider request failed.",
+        ) from error
 
 
 @app.post("/api/accounts", response_model=UserAccount, status_code=201)

@@ -9,6 +9,19 @@ export async function searchStays(city) {
   return payload
 }
 
+export async function searchLiveHotels(postcode) {
+  const response = await fetch(`/api/live-hotels?${new URLSearchParams({ postcode })}`)
+  const payload = await response.json().catch(() => ({}))
+
+  if (!response.ok) {
+    const error = new Error(payload.detail || 'Unable to search for nearby hotels.')
+    error.status = response.status
+    throw error
+  }
+
+  return payload
+}
+
 export async function createAccount(username, password, email) {
   const response = await fetch('/api/accounts', {
     method: 'POST',
