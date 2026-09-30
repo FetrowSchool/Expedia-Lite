@@ -3,7 +3,7 @@
 ## Repository and commit
 
 - GitHub repository URL: https://github.com/FetrowSchool/Expedia-Lite
-- Final assignement 2 part 1 commit hash: https://github.com/FetrowSchool/Expedia-Lite/commit/c3d2d2b4cd961d45e88c9b2ead9ffd36a93cd33e
+- Final assignement 2 part 1 commit hash: https://github.com/FetrowSchool/Expedia-Lite/commit/1f46946dc1a6dce20b4285b2f35af36521a34cc5
 
 ## Research and early mockup
 
