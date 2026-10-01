@@ -5,6 +5,7 @@
 - GitHub repository URL: https://github.com/FetrowSchool/Expedia-Lite
 - Final assignement 2 part 1 commit hash: https://github.com/FetrowSchool/Expedia-Lite/commit/1f46946dc1a6dce20b4285b2f35af36521a34cc5
 
+
 ## Research and early mockup
 
 Before I began the implementation of any features I reviewed and resarched Geoapify, Leaflet, FastAPI, and Vue to see how the ZIP lookup, hotel search, map, and frontend interactions should work.
